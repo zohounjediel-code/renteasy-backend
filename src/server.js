@@ -6,6 +6,9 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth');
+const bienRoutes = require('./routes/biens');
+const locataireRoutes = require('./routes/locataires');
+const contratRoutes = require('./routes/contrats');
 
 const app = express();
 
@@ -33,6 +36,9 @@ const limiteurAuth = rateLimit({
 });
 
 app.use('/api/auth', limiteurAuth, authRoutes);
+app.use('/api/biens', bienRoutes);
+app.use('/api/locataires', locataireRoutes);
+app.use('/api/contrats', contratRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'RentEasy Bénin API' });
