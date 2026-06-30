@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const bienRoutes = require('./routes/biens');
 const locataireRoutes = require('./routes/locataires');
 const contratRoutes = require('./routes/contrats');
+const paiementRoutes = require('./routes/paiements');
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/api/auth', limiteurAuth, authRoutes);
 app.use('/api/biens', bienRoutes);
 app.use('/api/locataires', locataireRoutes);
 app.use('/api/contrats', contratRoutes);
+app.use('/api/paiements', paiementRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'RentEasy Bénin API' });

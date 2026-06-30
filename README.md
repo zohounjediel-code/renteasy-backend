@@ -55,3 +55,9 @@ Toutes nécessitent le header `Authorization: Bearer <token>` obtenu à la conne
 - `GET /api/contrats` — lister mes contrats
 - `GET /api/contrats/:id` — détail d'un contrat avec ses échéances
 - `PATCH /api/contrats/:id/resilier` — résilier un contrat
+
+## Routes disponibles (Module 3)
+- `POST /api/paiements` — enregistrer un paiement sur une échéance (calcule la commission 5%, met à jour le statut, génère une quittance PDF)
+- `GET /api/paiements` — historique des paiements du propriétaire
+- `GET /api/paiements/impayes` — liste des échéances en retard de paiement
+- `GET /api/paiements/:id/quittance` — télécharger la quittance PDF d'un paiement
