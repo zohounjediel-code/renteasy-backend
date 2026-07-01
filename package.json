@@ -20,7 +20,8 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "pdfkit": "^0.15.2",
-    "pg": "^8.11.5"
+    "pg": "^8.11.5",
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

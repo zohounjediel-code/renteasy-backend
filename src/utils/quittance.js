@@ -44,12 +44,12 @@ function genererQuittancePDF({ paiement, echeance, contrat, bien, locataire }) {
 
     // Détail du paiement
     doc.fontSize(12).text('Détail du paiement', { underline: true });
-    doc.fontSize(10).text(`Montant payé : ${paiement.montant.toLocaleString('fr-FR')} FCFA`);
+    doc.fontSize(10).text(`Montant payé : ${formaterMontant(paiement.montant)} FCFA`);
     doc.text(`Méthode de paiement : ${formaterMethode(paiement.methode)}`);
     if (paiement.reference_transaction) {
       doc.text(`Référence transaction : ${paiement.reference_transaction}`);
     }
-    doc.text(`Commission RentEasy (5%) : ${paiement.commission_renteasy.toLocaleString('fr-FR')} FCFA`);
+    doc.text(`Commission RentEasy (5%) : ${formaterMontant(paiement.commission_renteasy)} FCFA`);
     doc.moveDown();
 
     doc.fontSize(10).fillColor('#555').text(
@@ -62,6 +62,12 @@ function genererQuittancePDF({ paiement, echeance, contrat, bien, locataire }) {
     stream.on('finish', () => resolve(`quittances/${nomFichier}`));
     stream.on('error', reject);
   });
+}
+
+// Formate un nombre avec des espaces normaux comme séparateurs de milliers
+// (toLocaleString insère un espace insécable que la police par défaut de pdfkit affiche mal)
+function formaterMontant(nombre) {
+  return nombre.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
 function formaterMethode(methode) {
