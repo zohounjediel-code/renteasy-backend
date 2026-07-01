@@ -11,6 +11,7 @@ const locataireRoutes = require('./routes/locataires');
 const contratRoutes = require('./routes/contrats');
 const paiementRoutes = require('./routes/paiements');
 const mobilemoneyRoutes = require('./routes/mobilemoney');
+const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/api/locataires', locataireRoutes);
 app.use('/api/contrats', contratRoutes);
 app.use('/api/paiements', paiementRoutes);
 app.use('/api/mobilemoney', mobilemoneyRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'RentEasy Bénin API' });
