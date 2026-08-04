@@ -76,6 +76,8 @@ function formaterMethode(methode) {
     moov_money: 'Moov Money',
     especes: 'Espèces',
     virement: 'Virement bancaire',
+    solde_renteasy: 'Solde RentEasy',
+    celtiis_pay: 'Celtiis Pay',
   };
   return labels[methode] || methode;
 }

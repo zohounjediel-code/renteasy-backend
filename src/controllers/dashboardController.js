@@ -1,7 +1,11 @@
 const pool = require('../config/database');
+const { resoudreProprietaireConsulte } = require('../utils/delegationAgent');
 
 async function obtenirDashboard(req, res) {
-  const proprietaire_id = req.user.id;
+  const proprietaire_id = resoudreProprietaireConsulte(req);
+  if (!proprietaire_id) {
+    return res.status(400).json({ message: 'proprietaire_id requis pour une consultation admin' });
+  }
 
   try {
     // 1. Statistiques des biens
@@ -23,7 +27,7 @@ async function obtenirDashboard(req, res) {
       `SELECT
         COUNT(*) AS total_echeances,
         COUNT(*) FILTER (WHERE e.statut = 'payee') AS echeances_payees,
-        COUNT(*) FILTER (WHERE e.statut IN ('en_attente', 'impayee', 'partielle')) AS echeances_impayees,
+        COUNT(*) FILTER (WHERE e.statut IN ('en_attente', 'impayee', 'partielle', 'en_recouvrement')) AS echeances_impayees,
         COALESCE(SUM(e.montant_du), 0) AS montant_total_du,
         COALESCE(SUM(CASE WHEN e.statut = 'payee' THEN e.montant_du ELSE 0 END), 0) AS montant_total_collecte
        FROM echeances e
@@ -57,7 +61,7 @@ async function obtenirDashboard(req, res) {
        JOIN biens b ON b.id = c.bien_id
        JOIN locataires l ON l.id = c.locataire_id
        WHERE b.proprietaire_id = $1
-         AND e.statut IN ('en_attente', 'impayee', 'partielle')
+         AND e.statut IN ('en_attente', 'impayee', 'partielle', 'en_recouvrement')
          AND e.date_limite < NOW()
        ORDER BY e.date_limite ASC
        LIMIT 5`,

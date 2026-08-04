@@ -1,0 +1,15 @@
+-- Migration 026 : étendre journal_activite_agent aux actions admin/super_admin (audit global)
+--
+-- Jusqu'ici cette table ne tracait QUE les actions d'un agent en délégation pour UN propriétaire
+-- précis (agent_id et proprietaire_id tous deux obligatoires). Le super admin a besoin d'une vue
+-- d'audit globale, tous agents ET admins confondus (créer un compte, activer/désactiver,
+-- réassigner un agent...), pour la confiance et la détection d'abus.
+--
+-- On réutilise cette même table plutôt que d'en créer une nouvelle :
+--   - agent_id porte désormais l'ACTEUR de l'action (un agent en délégation, OU un admin/super_admin)
+--   - proprietaire_id porte la CIBLE de l'action quand il y en a une (le compte concerné) — mais
+--     une action comme "création d'un compte agent" n'a pas de propriétaire concerné, d'où le
+--     passage en colonne optionnelle ci-dessous.
+-- Le nom des colonnes est conservé tel quel pour ne rien casser côté agent existant (requêtes,
+-- index, code déjà en place) — seule la contrainte NOT NULL est retirée.
+ALTER TABLE journal_activite_agent ALTER COLUMN proprietaire_id DROP NOT NULL;
