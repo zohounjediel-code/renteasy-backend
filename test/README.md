@@ -41,15 +41,25 @@ Cette suite couvre :
   `rappelsEcheances.js`. Le test le plus important vérifie l'anti-spam : trois occurrences
   immédiates de la même erreur ne déclenchent qu'**une seule** alerte email, tout en restant
   chacune bien enregistrées en base pour l'historique.
+- `src/controllers/paiementController.js` (`creerPaiement`, `payerEcheanceSolde`) — le mouvement
+  d'argent le plus critique de la plateforme. Couvre : validation du montant (négatif, non
+  entier, zéro — un `-5000` est "truthy" en JS, piège classique), les deux gardes anti-doublon
+  (référence de transaction déjà utilisée, double-clic dans les 30s), le plafonnement au reste dû,
+  le calcul de la commission à 5%, la transition de statut de l'échéance (partielle/payée), et
+  pour le paiement par solde : la répartition transactionnelle solde locataire → part
+  propriétaire + commission RentEasy, avec `ROLLBACK` vérifié si le solde est insuffisant.
+  `genererQuittancePDF` n'est PAS mockée (écrit un vrai PDF, supprimé après coup dans `after()`).
 
 Voir `test/rappelsEcheances.test.js` ou `test/erreurs.test.js` pour le pattern complet de mock
-sur `pool.query` — c'est le modèle à suivre pour tester un controller qui touche la base.
+sur `pool.query`, et `test/paiements.test.js` pour le mock de `pool.connect()` (transaction avec
+client dédié, `BEGIN`/`COMMIT`/`ROLLBACK`) — modèles à suivre pour tester un controller qui
+touche la base.
 
 ## Ce qui n'est PAS encore testé automatiquement
 
-Tout le reste des controllers (paiements, contrats, biens...) et l'intégration Mobile Money
-réelle, ainsi que le rendu visuel du PDF (vérifié manuellement lors de son développement, pas
-via ces tests).
+Les controllers d'authentification (`authController.js`), de contrats/biens, l'intégration
+Mobile Money réelle (appels HTTP vers MTN/Moov/Celtiis), ainsi que le rendu visuel du PDF
+(quittances et contrats — vérifié manuellement lors de son développement, pas via ces tests).
 
 ## Étendre la suite : tester un controller qui utilise la base
 
