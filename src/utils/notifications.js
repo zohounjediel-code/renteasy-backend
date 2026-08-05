@@ -31,7 +31,7 @@ async function creerNotification({ user_id, titre, message, type = 'info', lien 
 }
 
 // Envoie un email via Brevo (comme OJADA BANK)
-async function envoyerEmail({ destinataire_email, destinataire_nom, sujet, contenu_html }) {
+async function envoyerEmail({ destinataire_email, destinataire_nom, sujet, contenu_html, reply_to }) {
   if (!process.env.BREVO_API_KEY) {
     console.log('BREVO_API_KEY non configurée, email non envoyé');
     return;
@@ -45,6 +45,7 @@ async function envoyerEmail({ destinataire_email, destinataire_nom, sujet, conte
         to: [{ email: destinataire_email, name: destinataire_nom }],
         subject: sujet,
         htmlContent: contenu_html,
+        ...(reply_to ? { replyTo: { email: reply_to } } : {}),
       },
       {
         headers: {

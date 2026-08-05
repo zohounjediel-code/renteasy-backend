@@ -7,57 +7,56 @@ API backend de la plateforme de gestion et recouvrement de loyers.
 - PostgreSQL (via Railway en production)
 - JWT pour l'authentification
 - bcrypt pour le hash des mots de passe
+- Brevo pour l'envoi d'emails transactionnels
 
 ## Démarrage local
 
 1. `npm install`
 2. Copier `.env.example` vers `.env` et remplir les valeurs (surtout `DATABASE_URL` et `JWT_SECRET`)
-3. Créer la base de données PostgreSQL localement, puis exécuter le contenu de `migrations/001_init.sql`
-4. `npm run dev`
+3. Créer la base de données PostgreSQL localement
+4. `npm run migrate` — applique toutes les migrations SQL dans l'ordre (`migrations/*.sql`), en
+   suivant celles déjà appliquées dans la table `schema_migrations` (voir `migrations/run.js`)
+5. `npm run dev`
 
 ## Déploiement (Railway)
 - Créer un nouveau projet Railway, ajouter un service PostgreSQL
 - Laisser Railway générer `DATABASE_URL` automatiquement (ne jamais le coder en dur)
-- Définir les autres variables d'environnement dans Railway (JWT_SECRET, CORS_ORIGINS, etc.)
-- Exécuter `migrations/001_init.sql` directement dans la console PostgreSQL de Railway
+- Définir les autres variables d'environnement dans Railway (voir `.env.example` pour la liste
+  complète — JWT_SECRET, CORS_ORIGINS, FRONTEND_URL, credentials Mobile Money/SMS/Brevo, etc.)
+- `NODE_ENV=production` doit être défini (active notamment le SSL sur la connexion PostgreSQL,
+  voir `src/config/database.js`)
+- Exécuter `npm run migrate` (ou `node migrations/run.js`) contre la base Railway pour appliquer
+  toutes les migrations
 
 ## Structure
 ```
 src/
   config/        connexion base de données
-  controllers/   logique métier (auth, biens, paiements...)
-  middleware/    authentification JWT, vérification de rôle
+  controllers/   logique métier (auth, biens, paiements, mobilemoney, agents, superadmin...)
+  middleware/    authentification JWT, vérification de rôle, rate limiting, upload
   routes/        définition des endpoints API
-  utils/         fonctions utilitaires
-migrations/      scripts SQL
+  utils/         fonctions utilitaires (emails, SMS, PDF, cron, journal d'activité...)
+migrations/      scripts SQL numérotés + script d'exécution (run.js)
 ```
 
-## Routes disponibles (Module 1)
-- `POST /api/auth/inscription` — créer un compte propriétaire
-- `POST /api/auth/connexion` — se connecter
+## Domaines fonctionnels couverts
+- **Auth** (`routes/auth.js`) — inscription, connexion, activation de compte, mot de passe oublié
+- **Biens / Locataires / Contrats** (`routes/biens.js`, `locataires.js`, `contrats.js`) — gestion
+  locative, génération automatique des échéances et du contrat PDF
+- **Paiements** (`routes/paiements.js`) — enregistrement des paiements (espèces, virement,
+  Mobile Money), commission, quittances PDF
+- **Mobile Money** (`routes/mobilemoney.js`, `routes/solde.js`) — intégration MTN MoMo, Moov
+  Money, Celtiis Pay ; solde interne et retraits
+- **Agents** (`routes/agent.js`) — délégation propriétaire → agent, recouvrement pour compte de tiers
+- **Espace locataire** (`routes/locataireEspace.js`) — accès dédié du locataire à son contrat/historique
+- **Marché locatif** (page frontend `Marche`, modération via `routes/superAdmin.js`)
+- **Messagerie & notifications** (`routes/messages.js`, `routes/notifications.js`)
+- **Contact / support** (`routes/contact.js`) — formulaire public, sans authentification
+- **Super Admin** (`routes/superAdmin.js`) — utilisateurs, journal d'activité, paramètres de
+  plateforme, modération, rapports financiers/régionaux, monitoring d'erreurs
+
+Toutes les routes protégées nécessitent le header `Authorization: Bearer <token>` obtenu à la
+connexion (`POST /api/auth/connexion`). Le détail des endpoints est visible directement dans
+`src/routes/`, chaque fichier étant court et organisé par domaine.
+
 - `GET /api/health` — vérifier que l'API tourne
-
-## Routes disponibles (Module 2)
-Toutes nécessitent le header `Authorization: Bearer <token>` obtenu à la connexion.
-
-- `POST /api/biens` — ajouter un bien immobilier
-- `GET /api/biens` — lister mes biens
-- `GET /api/biens/:id` — détail d'un bien
-- `PUT /api/biens/:id` — modifier un bien
-- `DELETE /api/biens/:id` — supprimer un bien
-
-- `POST /api/locataires` — ajouter un locataire
-- `GET /api/locataires` — lister mes locataires
-- `GET /api/locataires/:id` — détail d'un locataire
-- `PUT /api/locataires/:id` — modifier un locataire
-
-- `POST /api/contrats` — créer un contrat (lie un bien à un locataire, génère 12 mois d'échéances automatiquement)
-- `GET /api/contrats` — lister mes contrats
-- `GET /api/contrats/:id` — détail d'un contrat avec ses échéances
-- `PATCH /api/contrats/:id/resilier` — résilier un contrat
-
-## Routes disponibles (Module 3)
-- `POST /api/paiements` — enregistrer un paiement sur une échéance (calcule la commission 5%, met à jour le statut, génère une quittance PDF)
-- `GET /api/paiements` — historique des paiements du propriétaire
-- `GET /api/paiements/impayes` — liste des échéances en retard de paiement
-- `GET /api/paiements/:id/quittance` — télécharger la quittance PDF d'un paiement

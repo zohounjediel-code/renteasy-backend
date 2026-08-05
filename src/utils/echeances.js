@@ -12,16 +12,21 @@ const SEUIL_RENOUVELLEMENT = { journalier: 5, hebdomadaire: 3, mensuel: 2, annue
 //  - mensuel      : échéance chaque mois au même quantième que la date de début (plafonné à 28)
 //  - annuel       : échéance chaque année au même jour/mois que la date de début
 //  - journalier   : pas de jour particulier, échéance chaque jour
+// Toutes les dates de ce fichier sont des chaînes 'YYYY-MM-DD' (sans heure), donc parsées par
+// `new Date(...)` comme minuit UTC. Sur un serveur dont le fuseau local n'est pas UTC, les
+// accesseurs locaux (getDate/getDay/getMonth...) peuvent alors renvoyer la veille — d'où
+// l'usage systématique des variantes UTC dans tout ce fichier, y compris pour construire de
+// nouvelles dates (Date.UTC plutôt que `new Date(année, mois, jour)`, qui construit en local).
 function calculerEcheanceDepuisDebut(date_debut, type_loyer) {
   const d = new Date(date_debut);
   if (type_loyer === 'hebdomadaire') {
-    return { jour_echeance: null, jour_semaine_echeance: d.getDay(), jour_echeance_annuel: null, mois_echeance_annuel: null };
+    return { jour_echeance: null, jour_semaine_echeance: d.getUTCDay(), jour_echeance_annuel: null, mois_echeance_annuel: null };
   }
   if (type_loyer === 'annuel') {
-    return { jour_echeance: null, jour_semaine_echeance: null, jour_echeance_annuel: d.getDate(), mois_echeance_annuel: d.getMonth() + 1 };
+    return { jour_echeance: null, jour_semaine_echeance: null, jour_echeance_annuel: d.getUTCDate(), mois_echeance_annuel: d.getUTCMonth() + 1 };
   }
   if (type_loyer === 'mensuel') {
-    return { jour_echeance: Math.min(d.getDate(), 28), jour_semaine_echeance: null, jour_echeance_annuel: null, mois_echeance_annuel: null };
+    return { jour_echeance: Math.min(d.getUTCDate(), 28), jour_semaine_echeance: null, jour_echeance_annuel: null, mois_echeance_annuel: null };
   }
   // journalier (ou tout autre cas) : pas de jour d'échéance particulier
   return { jour_echeance: null, jour_semaine_echeance: null, jour_echeance_annuel: null, mois_echeance_annuel: null };
@@ -29,10 +34,10 @@ function calculerEcheanceDepuisDebut(date_debut, type_loyer) {
 
 function ajouterPeriode(date, typeLoyer, n) {
   const d = new Date(date);
-  if (typeLoyer === 'journalier') d.setDate(d.getDate() + n);
-  else if (typeLoyer === 'hebdomadaire') d.setDate(d.getDate() + n * 7);
-  else if (typeLoyer === 'annuel') d.setFullYear(d.getFullYear() + n);
-  else d.setMonth(d.getMonth() + n); // mensuel par défaut
+  if (typeLoyer === 'journalier') d.setUTCDate(d.getUTCDate() + n);
+  else if (typeLoyer === 'hebdomadaire') d.setUTCDate(d.getUTCDate() + n * 7);
+  else if (typeLoyer === 'annuel') d.setUTCFullYear(d.getUTCFullYear() + n);
+  else d.setUTCMonth(d.getUTCMonth() + n); // mensuel par défaut
   return d;
 }
 
@@ -40,8 +45,8 @@ function ajouterPeriode(date, typeLoyer, n) {
 function premierJourSemaine(depart, jourSemaineVoulu) {
   const d = new Date(depart);
   if (jourSemaineVoulu === null || jourSemaineVoulu === undefined) return d;
-  const ecart = (jourSemaineVoulu - d.getDay() + 7) % 7;
-  d.setDate(d.getDate() + ecart);
+  const ecart = (jourSemaineVoulu - d.getUTCDay() + 7) % 7;
+  d.setUTCDate(d.getUTCDate() + ecart);
   return d;
 }
 
@@ -49,8 +54,8 @@ function premierJourSemaine(depart, jourSemaineVoulu) {
 function premiereDateAnnuelle(depart, jourVoulu, moisVoulu) {
   const d = new Date(depart);
   if (!jourVoulu || !moisVoulu) return d;
-  let candidate = new Date(d.getFullYear(), moisVoulu - 1, jourVoulu);
-  if (candidate < d) candidate = new Date(d.getFullYear() + 1, moisVoulu - 1, jourVoulu);
+  let candidate = new Date(Date.UTC(d.getUTCFullYear(), moisVoulu - 1, jourVoulu));
+  if (candidate < d) candidate = new Date(Date.UTC(d.getUTCFullYear() + 1, moisVoulu - 1, jourVoulu));
   return candidate;
 }
 
@@ -90,7 +95,7 @@ function genererDatesEcheances(contrat, dateDepart = null, nombrePeriodes = null
 
     let dateLimite;
     if (type === 'mensuel') {
-      dateLimite = new Date(periodeDebut.getFullYear(), periodeDebut.getMonth(), contrat.jour_echeance || 5);
+      dateLimite = new Date(Date.UTC(periodeDebut.getUTCFullYear(), periodeDebut.getUTCMonth(), contrat.jour_echeance || 5));
     } else {
       // Journalier / hebdomadaire (ancré) / annuel (ancré) : échéance = fin de période
       dateLimite = periodeDebut;

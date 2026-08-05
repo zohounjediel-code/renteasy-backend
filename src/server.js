@@ -22,6 +22,7 @@ const messageRoutes = require('./routes/messages');
 const profilRoutes = require('./routes/profil');
 const soldeRoutes = require('./routes/solde');
 const agentRoutes = require('./routes/agent');
+const contactRoutes = require('./routes/contact');
 
 const app = express();
 
@@ -55,6 +56,7 @@ const { limiteurGeneral } = require('./middleware/rateLimiters');
 app.use('/api', limiteurGeneral);
 
 app.use('/api/auth', limiteurAuth, authRoutes);
+app.use('/api/contact', limiteurAuth, contactRoutes);
 app.use('/api/biens', bienRoutes);
 app.use('/api/locataires', locataireRoutes);
 app.use('/api/contrats', contratRoutes);
