@@ -9,7 +9,10 @@ const SALT_ROUNDS = 10;
 
 // Inscription — propriétaire ou locataire uniquement
 async function inscrire(req, res) {
-  const { nom, email, telephone, mot_de_passe, ville, role, cgu_acceptees } = req.body;
+  const { nom, telephone, mot_de_passe, ville, role, cgu_acceptees } = req.body;
+  // Un espace en trop (copié-collé, clavier mobile) ferait échouer silencieusement toute
+  // connexion future : email = $1 est une comparaison stricte, jamais tolérante aux espaces.
+  const email = req.body.email?.trim();
 
   if (!nom || !email || !telephone || !mot_de_passe) {
     return res.status(400).json({ message: 'Champs obligatoires manquants' });
@@ -84,7 +87,11 @@ async function inscrire(req, res) {
 
 // Connexion
 async function connecter(req, res) {
-  const { email, mot_de_passe } = req.body;
+  const { mot_de_passe } = req.body;
+  // cf. inscrire() : même raison de trim() ici, sinon un espace collé par erreur dans l'email
+  // bloque la connexion avec un simple "Identifiants incorrects" impossible à diagnostiquer
+  // depuis l'écran de connexion.
+  const email = req.body.email?.trim();
 
   if (!email || !mot_de_passe) {
     return res.status(400).json({ message: 'Email et mot de passe requis' });
@@ -192,7 +199,7 @@ async function envoyerEmailReinitialisation({ nom, email, token }) {
 
 // Étape 1 : la personne indique son email, reçoit un lien si un compte actif correspond
 async function demanderReinitialisationMotDePasse(req, res) {
-  const { email } = req.body;
+  const email = req.body.email?.trim();
   if (!email) {
     return res.status(400).json({ message: 'Email requis' });
   }
