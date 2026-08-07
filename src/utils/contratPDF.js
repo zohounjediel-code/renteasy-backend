@@ -133,7 +133,7 @@ function genererContratPDF({ contrat, bien, locataire, proprietaire }) {
 
     doc.moveDown(2);
     doc.fontSize(8).fillColor('#aaa').text(
-      'Document généré automatiquement par RentEasy Bénin · contact@renteasy.bj',
+      `Document généré automatiquement par RentEasy Bénin · ${process.env.SUPPORT_EMAIL || 'renteasy243@gmail.com'}`,
       { align: 'center' }
     );
 

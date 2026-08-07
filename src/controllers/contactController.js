@@ -18,7 +18,7 @@ async function envoyerMessageContact(req, res) {
     return res.status(400).json({ message: 'Un des champs dépasse la longueur autorisée' });
   }
 
-  const destinataire = process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@renteasy.bj';
+  const destinataire = process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'renteasy243@gmail.com';
 
   try {
     await envoyerEmail({

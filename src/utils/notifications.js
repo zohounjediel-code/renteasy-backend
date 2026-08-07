@@ -41,7 +41,7 @@ async function envoyerEmail({ destinataire_email, destinataire_nom, sujet, conte
     await axios.post(
       'https://api.brevo.com/v3/smtp/email',
       {
-        sender: { name: 'RentEasy Bénin', email: process.env.EMAIL_FROM || 'noreply@renteasy.bj' },
+        sender: { name: 'RentEasy Bénin', email: process.env.EMAIL_FROM || 'renteasy243@gmail.com' },
         to: [{ email: destinataire_email, name: destinataire_nom }],
         subject: sujet,
         htmlContent: contenu_html,
