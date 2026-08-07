@@ -49,6 +49,28 @@ Cette suite couvre :
   pour le paiement par solde : la répartition transactionnelle solde locataire → part
   propriétaire + commission RentEasy, avec `ROLLBACK` vérifié si le solde est insuffisant.
   `genererQuittancePDF` n'est PAS mockée (écrit un vrai PDF, supprimé après coup dans `after()`).
+- `src/controllers/authController.js` (`inscrire`, `connecter`, `activerCompte`,
+  `demanderReinitialisationMotDePasse`, `reinitialiserMotDePasse`, `ajouterRole`) — inscription
+  (ajout de rôle à un compte existant, assignation automatique d'agent), connexion (mauvais mot
+  de passe, compte inactif), activation de compte via token d'invitation (expiration), et surtout
+  la non-régression du cookie httpOnly : chaque test de succès vérifie qu'aucun `token` ne fuite
+  dans le corps JSON de la réponse et qu'un cookie `renteasy_token` avec `httpOnly: true` est bien
+  posé. Vérifie aussi l'anti-énumération de comptes (réponse strictement identique sur
+  `demanderReinitialisationMotDePasse`, que l'email existe ou non). `bcrypt`/`jwt` ne sont PAS
+  mockés (fonctions rapides, et c'est justement leur comportement réel qu'on veut vérifier) ;
+  `BREVO_API_KEY` est effacée en `before()` pour qu'aucun email réel ne parte pendant les tests,
+  même si le `.env` local en contient une vraie.
+- `src/controllers/bienController.js` (`creerBien`, `listerBiens`, `obtenirBien`, `modifierBien`,
+  `supprimerBien`) — accent sur l'autorisation (un propriétaire ne peut jamais lire/modifier un
+  bien d'un autre, un admin peut tout voir) et les garde-fous métier (bien occupé non
+  modifiable/supprimable, suppression bloquée dès qu'un historique de contrat existe même résilié
+  — sinon `ON DELETE CASCADE` effacerait l'historique d'échéances/paiements des locataires
+  passés).
+- `src/controllers/contratController.js` (`creerContrat`, `obtenirContrat`, `resilierContrat`) —
+  toute la chaîne de validation à la création (bien libre, tarif proposé disponible, locataire
+  confirmé, pas de collision de dates avec un contrat existant), autorisation sur la consultation/
+  résiliation, et vérifie qu'une résiliation ne supprime que les échéances **futures encore en
+  attente** (les échéances passées, même impayées, doivent rester pour le recouvrement).
 
 Voir `test/rappelsEcheances.test.js` ou `test/erreurs.test.js` pour le pattern complet de mock
 sur `pool.query`, et `test/paiements.test.js` pour le mock de `pool.connect()` (transaction avec
@@ -57,9 +79,16 @@ touche la base.
 
 ## Ce qui n'est PAS encore testé automatiquement
 
-Les controllers d'authentification (`authController.js`), de contrats/biens, l'intégration
-Mobile Money réelle (appels HTTP vers MTN/Moov/Celtiis), ainsi que le rendu visuel du PDF
-(quittances et contrats — vérifié manuellement lors de son développement, pas via ces tests).
+`superAdminController.js`, `demandeController.js`, `agentController.js`,
+`locataireEspaceController.js`, l'intégration Mobile Money réelle (appels HTTP vers
+MTN/Moov/Celtiis), ainsi que le rendu visuel du PDF (quittances et contrats — vérifié
+manuellement lors de son développement, pas via ces tests).
+
+## CI
+
+`.github/workflows/tests.yml` lance `npm test` sur chaque push et pull request vers `main`. Les
+tests ne dépendent d'aucune vraie base de données (tout est mocké), donc aucun secret/service
+n'est nécessaire côté GitHub Actions.
 
 ## Étendre la suite : tester un controller qui utilise la base
 
