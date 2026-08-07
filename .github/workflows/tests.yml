@@ -13,7 +13,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
           cache: 'npm'
       - run: npm ci
       - run: npm test
+        env:
+          # Pas de .env en CI : JWT_SECRET doit exister pour que jwt.sign() ne lève pas
+          # "secretOrPrivateKey must have a value" dans les tests qui émettent un token
+          # (auth.test.js). Valeur factice, aucune base réelle n'est jamais contactée.
+          JWT_SECRET: cle-de-test-ci-sans-valeur-reelle
