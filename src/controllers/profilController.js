@@ -1,6 +1,8 @@
 const pool = require('../config/database');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const { listerJournalProprietaire } = require('../utils/journalAgent');
+const { definirCookieAuth } = require('../utils/authCookie');
 
 // Récupérer son profil
 async function obtenirProfil(req, res) {
@@ -73,15 +75,16 @@ async function modifierProfil(req, res) {
       [nom || null, telephone || null, ville || null, numero_piece_identite || null, user_id]
     );
 
-    // Mettre à jour le localStorage via le token
-    const jwt = require('jsonwebtoken');
+    // Le nom est embarqué dans le payload du JWT (utilisé pour l'affichage sans requête
+    // supplémentaire) : on réémet un token à jour pour que le cookie reflète le nouveau nom.
     const token = jwt.sign(
       { id: resultat.rows[0].id, role: resultat.rows[0].role, nom: resultat.rows[0].nom },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
+    definirCookieAuth(res, token);
 
-    return res.json({ utilisateur: resultat.rows[0], token });
+    return res.json({ utilisateur: resultat.rows[0] });
   } catch (err) {
     console.error('Erreur modification profil :', err);
     return res.status(500).json({ message: 'Erreur serveur' });

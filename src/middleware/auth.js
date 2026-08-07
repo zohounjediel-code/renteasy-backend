@@ -1,14 +1,17 @@
 const jwt = require('jsonwebtoken');
+const { NOM_COOKIE } = require('../utils/authCookie');
 
-// Vérifie que la requête contient un token JWT valide
+// Vérifie que la requête contient un token JWT valide. Le cookie httpOnly est la source
+// normale (posé automatiquement par le navigateur) ; l'en-tête Authorization reste accepté en
+// repli pour ne rien casser côté clients non-navigateur éventuels.
 function authentifier(req, res, next) {
   const authHeader = req.headers.authorization;
+  const tokenHeader = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const token = req.cookies?.[NOM_COOKIE] || tokenHeader;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return res.status(401).json({ message: 'Authentification requise' });
   }
-
-  const token = authHeader.split(' ')[1];
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);

@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const pool = require('../config/database');
 const { envoyerEmail, echapperHtml } = require('../utils/notifications');
 const { enregistrerActionAgent } = require('../utils/journalAgent');
+const { definirCookieAuth, effacerCookieAuth } = require('../utils/authCookie');
 
 const SALT_ROUNDS = 10;
 
@@ -46,11 +47,10 @@ async function inscrire(req, res) {
         [nouveauxRoles, utilisateurExistant.id]
       );
 
-      const token = genererToken(resultat.rows[0]);
+      definirCookieAuth(res, genererToken(resultat.rows[0]));
       return res.status(200).json({
         message: `Rôle ${roleFinal} ajouté à votre compte`,
         utilisateur: resultat.rows[0],
-        token,
       });
     }
 
@@ -76,9 +76,9 @@ async function inscrire(req, res) {
     );
 
     const utilisateur = resultat.rows[0];
-    const token = genererToken(utilisateur);
+    definirCookieAuth(res, genererToken(utilisateur));
 
-    return res.status(201).json({ utilisateur, token });
+    return res.status(201).json({ utilisateur });
   } catch (err) {
     console.error('Erreur inscription :', err);
     return res.status(500).json({ message: 'Erreur serveur lors de l\'inscription' });
@@ -119,10 +119,10 @@ async function connecter(req, res) {
       return res.status(401).json({ message: 'Identifiants incorrects' });
     }
 
-    const token = genererToken(utilisateur);
+    definirCookieAuth(res, genererToken(utilisateur));
     delete utilisateur.mot_de_passe_hash;
 
-    return res.json({ utilisateur, token });
+    return res.json({ utilisateur });
   } catch (err) {
     console.error('Erreur connexion :', err);
     return res.status(500).json({ message: 'Erreur serveur lors de la connexion' });
@@ -167,8 +167,8 @@ async function activerCompte(req, res) {
       [hash, token]
     );
 
-    const jwtToken = genererToken(utilisateur.rows[0]);
-    return res.json({ message: 'Compte activé avec succès !', utilisateur: utilisateur.rows[0], token: jwtToken });
+    definirCookieAuth(res, genererToken(utilisateur.rows[0]));
+    return res.json({ message: 'Compte activé avec succès !', utilisateur: utilisateur.rows[0] });
   } catch (err) {
     console.error('Erreur activation :', err);
     return res.status(500).json({ message: 'Erreur serveur' });
@@ -486,12 +486,11 @@ async function ajouterRole(req, res) {
     }
 
     const updated = await pool.query('SELECT id, nom, email, telephone, role, ville FROM users WHERE id = $1', [user_id]);
-    const token = genererToken(updated.rows[0]);
+    definirCookieAuth(res, genererToken(updated.rows[0]));
 
     return res.json({
       message: `Espace ${role} activé avec succès !`,
       utilisateur: updated.rows[0],
-      token,
     });
   } catch (err) {
     console.error('Erreur ajout rôle :', err);
@@ -499,4 +498,12 @@ async function ajouterRole(req, res) {
   }
 }
 
-module.exports = { inscrire, connecter, activerCompte, creerAgent, creerAdmin, inviterLocataire, ajouterRole, demanderReinitialisationMotDePasse, reinitialiserMotDePasse };
+// Le token étant en cookie httpOnly, le frontend ne peut pas simplement "l'oublier" comme il
+// le faisait avec localStorage.removeItem() : il faut que le serveur efface explicitement le
+// cookie (même nom, mêmes attributs) pour que le navigateur le supprime réellement.
+function deconnecter(req, res) {
+  effacerCookieAuth(res);
+  return res.json({ message: 'Déconnecté' });
+}
+
+module.exports = { inscrire, connecter, deconnecter, activerCompte, creerAgent, creerAdmin, inviterLocataire, ajouterRole, demanderReinitialisationMotDePasse, reinitialiserMotDePasse };
