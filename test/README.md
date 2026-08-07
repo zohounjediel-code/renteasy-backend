@@ -71,6 +71,29 @@ Cette suite couvre :
   confirmé, pas de collision de dates avec un contrat existant), autorisation sur la consultation/
   résiliation, et vérifie qu'une résiliation ne supprime que les échéances **futures encore en
   attente** (les échéances passées, même impayées, doivent rester pour le recouvrement).
+- `src/controllers/agentController.js` (`dashboardProprietaireAgent`, `biensProprietaireAgent`,
+  `bienProprietaireAgent`, `calculerPerformanceAgent`) — `verifierAccesProprietaire` (le verrou
+  central : un agent ne consulte que les propriétaires qui LUI sont assignés) n'est pas exportée,
+  testée indirectement via les fonctions qui l'appellent en premier. `calculerPerformanceAgent`
+  vérifie le calcul du taux de recouvrement (dont le cas 0 échéance = 0%, pas une division par
+  zéro) et le cumul demandes de modification + demandes marché.
+- `src/controllers/locataireEspaceController.js` (`accepterLiaison`, `refuserLiaison`,
+  `signerContrat`, `refuserContrat`, `obtenirContratLocataire`) — `signerContrat` est le flux le
+  plus sensible : active le contrat ET génère les échéances via `creerEcheancesPourContrat`
+  (réelle, pas mockée — seul `pool.query` l'est), et vérifie qu'une réservation future n'occupe
+  pas le bien avant sa date de début réelle.
+- `src/controllers/demandeController.js` (`soumettreDemandeContrat`, `approuverDemande`,
+  `annulerDemande`) — les effets de bord d'une approbation diffèrent selon le type : une
+  résiliation libère le bien et supprime les échéances futures (jamais les passées) ; une
+  modification de loyer ne s'applique **qu'aux échéances `en_attente`**, jamais à celles déjà
+  payées, partielles, impayées ou en recouvrement.
+- `src/controllers/superAdminController.js` (`obtenirParametres`, `modifierCommission`,
+  `modifierOperateurPaiement`, `toggleActiverCompte`, `reassignerAgent`) — les garde-fous les plus
+  sensibles de la plateforme : impossible de désactiver un super_admin, un admin ne peut pas en
+  désactiver un autre, un admin géreur d'agents doit d'abord les réassigner avant désactivation,
+  le reset de sécurité de `autorise_agent_gestion` quand un propriétaire change d'agent, et la
+  garantie qu'une clé API affichée masquée (`••••1234`) n'écrase jamais la vraie valeur enregistrée
+  si elle est renvoyée telle quelle au serveur.
 
 Voir `test/rappelsEcheances.test.js` ou `test/erreurs.test.js` pour le pattern complet de mock
 sur `pool.query`, et `test/paiements.test.js` pour le mock de `pool.connect()` (transaction avec
@@ -79,10 +102,10 @@ touche la base.
 
 ## Ce qui n'est PAS encore testé automatiquement
 
-`superAdminController.js`, `demandeController.js`, `agentController.js`,
-`locataireEspaceController.js`, l'intégration Mobile Money réelle (appels HTTP vers
-MTN/Moov/Celtiis), ainsi que le rendu visuel du PDF (quittances et contrats — vérifié
-manuellement lors de son développement, pas via ces tests).
+L'intégration Mobile Money réelle (appels HTTP vers MTN/Moov/Celtiis — testée manuellement, pas
+via cette suite), ainsi que le rendu visuel du PDF (quittances et contrats — vérifié
+manuellement lors de son développement, pas via ces tests). Tous les controllers ont désormais
+au moins une couverture de leurs flux principaux et de leurs vérifications d'autorisation.
 
 ## CI
 
