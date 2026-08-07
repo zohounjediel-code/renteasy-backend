@@ -223,7 +223,7 @@ async function listerImpayes(req, res) {
        JOIN users pr ON pr.id = b.proprietaire_id
        WHERE ${estAgent ? 'pr.agent_id = $1' : 'b.proprietaire_id = $1'}
          AND e.statut IN ('impayee', 'en_attente', 'partielle', 'en_recouvrement')
-         AND e.date_limite < NOW()
+         AND e.date_limite < CURRENT_DATE
        ORDER BY e.date_limite ASC`,
       [idFiltre]
     );

@@ -67,7 +67,7 @@ async function dashboardProprietaireAgent(req, res) {
        JOIN locataires l ON l.id = c.locataire_id
        WHERE b.proprietaire_id = $1
          AND e.statut IN ('en_attente', 'impayee', 'partielle', 'en_recouvrement')
-         AND e.date_limite < NOW()
+         AND e.date_limite < CURRENT_DATE
        ORDER BY e.date_limite ASC
        LIMIT 5`,
       [proprietaire_id]
@@ -235,7 +235,7 @@ async function impayesProprietaireAgent(req, res) {
        JOIN locataires l ON l.id = c.locataire_id
        WHERE b.proprietaire_id = $1
          AND e.statut IN ('impayee', 'en_attente', 'partielle', 'en_recouvrement')
-         AND e.date_limite < NOW()
+         AND e.date_limite < CURRENT_DATE
        ORDER BY e.date_limite ASC`,
       [proprietaire.id]
     );

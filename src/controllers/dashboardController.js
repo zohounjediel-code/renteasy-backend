@@ -52,7 +52,8 @@ async function obtenirDashboard(req, res) {
       [proprietaire_id, debutMois]
     );
 
-    // 4. Échéances en retard (date dépassée, non payées)
+    // 4. Échéances en retard (date dépassée, non payées). Comparaison à CURRENT_DATE (pas NOW()) :
+    // date_limite est une DATE, donc une échéance du jour même ne doit pas apparaître en retard.
     const impayes = await pool.query(
       `SELECT e.id, e.mois_concerne, e.montant_du, e.date_limite, e.statut,
               b.adresse, b.ville, l.nom AS locataire_nom, l.telephone AS locataire_telephone
@@ -62,7 +63,7 @@ async function obtenirDashboard(req, res) {
        JOIN locataires l ON l.id = c.locataire_id
        WHERE b.proprietaire_id = $1
          AND e.statut IN ('en_attente', 'impayee', 'partielle', 'en_recouvrement')
-         AND e.date_limite < NOW()
+         AND e.date_limite < CURRENT_DATE
        ORDER BY e.date_limite ASC
        LIMIT 5`,
       [proprietaire_id]
