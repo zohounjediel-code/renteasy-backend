@@ -78,6 +78,19 @@ async function inscrire(req, res) {
     const utilisateur = resultat.rows[0];
     definirCookieAuth(res, genererToken(utilisateur));
 
+    // envoyerEmail avale déjà ses propres erreurs (cf. utils/notifications.js) : un souci Brevo
+    // ne doit jamais faire échouer l'inscription elle-même, déjà actée en base à ce stade.
+    envoyerEmail({
+      destinataire_email: utilisateur.email,
+      destinataire_nom: utilisateur.nom,
+      sujet: '[RentEasy Bénin] Bienvenue !',
+      contenu_html: `
+        <h2>Bienvenue sur RentEasy Bénin !</h2>
+        <p>Bonjour ${echapperHtml(utilisateur.nom)},</p>
+        <p>Votre compte ${roleFinal === 'proprietaire' ? 'propriétaire' : 'locataire'} a bien été créé. Vous pouvez dès maintenant vous connecter avec votre email et votre mot de passe.</p>
+      `,
+    });
+
     return res.status(201).json({ utilisateur });
   } catch (err) {
     console.error('Erreur inscription :', err);
