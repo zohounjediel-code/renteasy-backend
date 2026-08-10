@@ -14,6 +14,7 @@ const {
   performanceAgent,
   monJournalAgent,
   journalProprietaireAgent,
+  demandesMarcheAgent,
 } = require('../controllers/agentController');
 
 // Toutes les routes agent sont en LECTURE SEULE : un agent consulte les comptes de ses
@@ -23,6 +24,7 @@ router.use(authentifier, autoriser('agent', 'admin', 'super_admin'));
 router.get('/performance', performanceAgent);
 router.get('/mon-journal', monJournalAgent);
 router.get('/mes-proprietaires', proprietairesDeAgent);
+router.get('/demandes-marche', demandesMarcheAgent);
 
 router.get('/proprietaires/:proprietaireId/dashboard', dashboardProprietaireAgent);
 router.get('/proprietaires/:proprietaireId/biens', biensProprietaireAgent);

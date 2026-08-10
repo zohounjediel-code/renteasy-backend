@@ -371,6 +371,33 @@ async function monJournalAgent(req, res) {
   }
 }
 
+// Demandes de location/réservation via le marché (statut 'demande_locataire'), tous
+// propriétaires assignés confondus — c'est ce chiffre qui alimente demandes_marche_en_attente
+// sur le tableau de bord (calculerPerformanceAgent), donc la page Demandes doit lister les mêmes
+// éléments pour que le compteur et la page restent cohérents. Lecture seule : approuver/refuser
+// passe par les routes existantes /contrats/:id/approuver et /refuser-demande (déjà ouvertes à
+// 'agent' mais soumises à la délégation du propriétaire concerné via estAutoriseSurProprietaire).
+async function demandesMarcheAgent(req, res) {
+  try {
+    const resultat = await pool.query(
+      `SELECT c.*, b.numero_bien, b.adresse, b.ville, b.type_bien,
+              l.nom AS locataire_nom, l.telephone AS locataire_telephone,
+              pr.id AS proprietaire_id, pr.nom AS proprietaire_nom, pr.autorise_agent_gestion
+       FROM contrats c
+       JOIN biens b ON b.id = c.bien_id
+       JOIN locataires l ON l.id = c.locataire_id
+       JOIN users pr ON pr.id = b.proprietaire_id
+       WHERE pr.agent_id = $1 AND c.statut = 'demande_locataire'
+       ORDER BY c.created_at DESC`,
+      [req.user.id]
+    );
+    return res.json(resultat.rows);
+  } catch (err) {
+    console.error('Erreur demandes marché agent :', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+}
+
 // Journal des actions de l'agent pour UN propriétaire précis (vue depuis sa fiche)
 async function journalProprietaireAgent(req, res) {
   try {
@@ -398,4 +425,5 @@ module.exports = {
   calculerPerformanceAgent,
   monJournalAgent,
   journalProprietaireAgent,
+  demandesMarcheAgent,
 };
