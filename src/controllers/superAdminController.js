@@ -465,7 +465,10 @@ async function proprietairesDeAgent(req, res) {
       `SELECT u.id, u.nom, u.email, u.telephone, u.ville, u.created_at, u.autorise_agent_gestion,
               COUNT(DISTINCT b.id) AS nb_biens,
               COUNT(DISTINCT c.id) FILTER (WHERE c.statut = 'actif') AS nb_contrats,
-              COUNT(DISTINCT e.id) FILTER (WHERE e.statut IN ('en_attente', 'impayee', 'partielle', 'en_recouvrement')) AS nb_impayes,
+              -- 'en_attente' ne compte comme impayé que si l'échéance est réellement dépassée :
+              -- sinon un loyer d'un mois futur (pas encore dû) était compté comme "impayé", ce qui
+              -- gonflait ce chiffre bien au-delà des vrais retards visibles sur /paiements/impayes.
+              COUNT(DISTINCT e.id) FILTER (WHERE e.statut IN ('impayee', 'partielle', 'en_recouvrement') OR (e.statut = 'en_attente' AND e.date_limite < CURRENT_DATE)) AS nb_impayes,
               COUNT(DISTINCT m.id) FILTER (WHERE m.lu = false) AS nb_messages_non_lus
        FROM users u
        LEFT JOIN biens b ON b.proprietaire_id = u.id
