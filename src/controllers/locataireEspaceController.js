@@ -309,26 +309,65 @@ async function signerContrat(req, res) {
 
     const c = contrat.rows[0];
 
-    const contratMisAJour = await pool.query(
-      `UPDATE contrats SET statut = 'actif', signature_locataire = $1, date_signature_locataire = NOW()
-       WHERE id = $2 RETURNING *`,
-      [signature_locataire.trim(), id]
-    );
+    // La signature vaut finalisation : si une caution est due, elle doit être réglée dans le
+    // même geste (débitée du solde du locataire) — sinon le contrat n'est pas activé du tout.
+    // Tout se fait dans une seule transaction : activation du contrat, paiement de la caution,
+    // génération des échéances, occupation du bien — tout réussit ensemble ou rien ne change.
+    const client = await pool.connect();
+    let contratMisAJour;
+    try {
+      await client.query('BEGIN');
 
-    // Le contrat est officiellement validé : génère les échéances
-    await creerEcheancesPourContrat(pool, contratMisAJour.rows[0]);
+      if (c.caution > 0) {
+        const userRes = await client.query('SELECT solde FROM users WHERE id = $1 FOR UPDATE', [user_id]);
+        const solde = userRes.rows[0].solde;
 
-    // N'occupe le bien immédiatement que si la période a déjà commencé.
-    // Sinon (réservation future), le bien reste libre jusqu'à la date de début —
-    // c'est la tâche quotidienne qui basculera son statut le moment venu.
-    const dateDebut = new Date(c.date_debut);
-    const aujourdHui = new Date();
-    aujourdHui.setHours(0, 0, 0, 0);
-    if (dateDebut <= aujourdHui) {
-      await pool.query(
-        "UPDATE biens SET statut = 'occupe', sur_le_marche = false, description_marche = NULL, updated_at = NOW() WHERE id = $1",
-        [c.bien_id]
+        if (solde < c.caution) {
+          await client.query('ROLLBACK');
+          client.release();
+          return res.status(400).json({
+            message: `Solde insuffisant pour la caution de ce contrat (${c.caution.toLocaleString('fr-FR')} FCFA requis, solde disponible : ${solde.toLocaleString('fr-FR')} FCFA). Rechargez votre solde puis signez à nouveau.`,
+          });
+        }
+
+        await client.query('UPDATE users SET solde = solde - $1 WHERE id = $2', [c.caution, user_id]);
+        await client.query(
+          `INSERT INTO caution_mouvements (contrat_id, type, montant) VALUES ($1, 'paiement', $2)`,
+          [id, c.caution]
+        );
+      }
+
+      const contratRes = await client.query(
+        `UPDATE contrats
+         SET statut = 'actif', signature_locataire = $1, date_signature_locataire = NOW(),
+             caution_solde = $3, statut_caution = CASE WHEN $3 > 0 THEN 'payee' ELSE statut_caution END
+         WHERE id = $2 RETURNING *`,
+        [signature_locataire.trim(), id, c.caution]
       );
+      contratMisAJour = contratRes.rows[0];
+
+      // Le contrat est officiellement validé : génère les échéances
+      await creerEcheancesPourContrat(client, contratMisAJour);
+
+      // N'occupe le bien immédiatement que si la période a déjà commencé.
+      // Sinon (réservation future), le bien reste libre jusqu'à la date de début —
+      // c'est la tâche quotidienne qui basculera son statut le moment venu.
+      const dateDebut = new Date(c.date_debut);
+      const aujourdHui = new Date();
+      aujourdHui.setHours(0, 0, 0, 0);
+      if (dateDebut <= aujourdHui) {
+        await client.query(
+          "UPDATE biens SET statut = 'occupe', sur_le_marche = false, description_marche = NULL, updated_at = NOW() WHERE id = $1",
+          [c.bien_id]
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
 
     await notifier({
@@ -348,7 +387,7 @@ async function signerContrat(req, res) {
       `,
     });
 
-    return res.json({ message: 'Contrat signé avec succès. Il est maintenant officiellement actif.', contrat: contratMisAJour.rows[0] });
+    return res.json({ message: 'Contrat signé avec succès. Il est maintenant officiellement actif.', contrat: contratMisAJour });
   } catch (err) {
     console.error('Erreur signature contrat :', err);
     return res.status(500).json({ message: 'Erreur serveur' });

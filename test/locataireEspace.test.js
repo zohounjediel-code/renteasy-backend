@@ -95,27 +95,42 @@ describe('signerContrat', () => {
     assert.equal(res.statutCode, 404);
   });
 
+  // signerContrat ouvre désormais une transaction (la signature vaut finalisation : paiement de
+  // la caution dans le même geste), donc pool.connect doit aussi être mocké — cf.
+  // test/paiements.test.js pour le modèle. Toutes les écritures passent par client.query.
+
   test('active le contrat, génère les échéances, et occupe le bien si la période a déjà commencé', async () => {
     const hier = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     let bienOccupe = false;
     let echeancesInserees = 0;
+    let soldeDebite = null;
     mock.method(pool, 'query', async (sql) => {
       if (sql.includes("c.statut = 'en_attente_signature'")) {
-        return { rows: [{ id: 'c1', bien_id: 'bien-1', numero_bien: 'BJ-001', proprietaire_id: 'prop-1', proprietaire_nom: 'Marie', proprietaire_email: 'marie@test.local', date_debut: hier, type_loyer: 'mensuel', loyer_mensuel: 50000, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
+        return { rows: [{ id: 'c1', bien_id: 'bien-1', numero_bien: 'BJ-001', proprietaire_id: 'prop-1', proprietaire_nom: 'Marie', proprietaire_email: 'marie@test.local', date_debut: hier, type_loyer: 'mensuel', loyer_mensuel: 50000, caution: 150000, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
       }
-      if (sql.includes("UPDATE contrats SET statut = 'actif'")) {
-        return { rows: [{ id: 'c1', bien_id: 'bien-1', date_debut: hier, type_loyer: 'mensuel', loyer_mensuel: 50000, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
-      }
-      if (sql.includes('INSERT INTO echeances')) { echeancesInserees += 1; return { rows: [] }; }
-      if (sql.includes("UPDATE biens SET statut = 'occupe'")) { bienOccupe = true; return { rows: [] }; }
       return { rows: [] };
     });
+    mock.method(pool, 'connect', async () => ({
+      async query(sql, params) {
+        if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+        if (sql.includes('FOR UPDATE')) return { rows: [{ solde: 500000 }] };
+        if (sql.includes('UPDATE users SET solde = solde -')) { soldeDebite = params; return { rows: [] }; }
+        if (sql.includes("SET statut = 'actif'")) {
+          return { rows: [{ id: 'c1', bien_id: 'bien-1', date_debut: hier, type_loyer: 'mensuel', loyer_mensuel: 50000, caution: 150000, caution_solde: 150000, statut_caution: 'payee', jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
+        }
+        if (sql.includes('INSERT INTO echeances')) { echeancesInserees += 1; return { rows: [] }; }
+        if (sql.includes("UPDATE biens SET statut = 'occupe'")) { bienOccupe = true; return { rows: [] }; }
+        return { rows: [] };
+      },
+      release() {},
+    }));
     const req = { params: { id: 'c1' }, body: { signature_locataire: 'Jean K.' }, user: { id: 'user-loc-1', nom: 'Jean' } };
     const res = fauxRes();
     await signerContrat(req, res);
     assert.equal(res.statutCode, 200);
     assert.ok(echeancesInserees > 0, 'au moins une échéance doit être générée');
     assert.equal(bienOccupe, true);
+    assert.deepEqual(soldeDebite, [150000, 'user-loc-1']);
   });
 
   test('une réservation future (date de début pas encore arrivée) ne rend pas le bien occupé tout de suite', async () => {
@@ -123,19 +138,52 @@ describe('signerContrat', () => {
     let bienOccupe = false;
     mock.method(pool, 'query', async (sql) => {
       if (sql.includes("c.statut = 'en_attente_signature'")) {
-        return { rows: [{ id: 'c1', bien_id: 'bien-1', numero_bien: 'BJ-001', proprietaire_id: 'prop-1', proprietaire_nom: 'Marie', proprietaire_email: 'marie@test.local', date_debut: demain, type_loyer: 'mensuel', loyer_mensuel: 50000, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
+        return { rows: [{ id: 'c1', bien_id: 'bien-1', numero_bien: 'BJ-001', proprietaire_id: 'prop-1', proprietaire_nom: 'Marie', proprietaire_email: 'marie@test.local', date_debut: demain, type_loyer: 'mensuel', loyer_mensuel: 50000, caution: 0, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
       }
-      if (sql.includes("UPDATE contrats SET statut = 'actif'")) {
-        return { rows: [{ id: 'c1', bien_id: 'bien-1', date_debut: demain, type_loyer: 'mensuel', loyer_mensuel: 50000, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
-      }
-      if (sql.includes("UPDATE biens SET statut = 'occupe'")) { bienOccupe = true; return { rows: [] }; }
       return { rows: [] };
     });
+    mock.method(pool, 'connect', async () => ({
+      async query(sql) {
+        if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+        if (sql.includes("SET statut = 'actif'")) {
+          return { rows: [{ id: 'c1', bien_id: 'bien-1', date_debut: demain, type_loyer: 'mensuel', loyer_mensuel: 50000, caution: 0, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
+        }
+        if (sql.includes("UPDATE biens SET statut = 'occupe'")) { bienOccupe = true; return { rows: [] }; }
+        return { rows: [] };
+      },
+      release() {},
+    }));
     const req = { params: { id: 'c1' }, body: { signature_locataire: 'Jean K.' }, user: { id: 'user-loc-1', nom: 'Jean' } };
     const res = fauxRes();
     await signerContrat(req, res);
     assert.equal(res.statutCode, 200);
     assert.equal(bienOccupe, false);
+  });
+
+  test('renvoie 400 et n\'active pas le contrat si le solde ne couvre pas la caution', async () => {
+    const hier = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    let contratActive = false;
+    mock.method(pool, 'query', async (sql) => {
+      if (sql.includes("c.statut = 'en_attente_signature'")) {
+        return { rows: [{ id: 'c1', bien_id: 'bien-1', numero_bien: 'BJ-001', proprietaire_id: 'prop-1', proprietaire_nom: 'Marie', proprietaire_email: 'marie@test.local', date_debut: hier, type_loyer: 'mensuel', loyer_mensuel: 50000, caution: 150000, jour_echeance: 5, duree_valeur: null, duree_unite: null, date_fin: null }] };
+      }
+      return { rows: [] };
+    });
+    mock.method(pool, 'connect', async () => ({
+      async query(sql) {
+        if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rows: [] };
+        if (sql.includes('FOR UPDATE')) return { rows: [{ solde: 1000 }] }; // très insuffisant pour 150000
+        if (sql.includes("SET statut = 'actif'")) { contratActive = true; return { rows: [] }; }
+        return { rows: [] };
+      },
+      release() {},
+    }));
+    const req = { params: { id: 'c1' }, body: { signature_locataire: 'Jean K.' }, user: { id: 'user-loc-1', nom: 'Jean' } };
+    const res = fauxRes();
+    await signerContrat(req, res);
+    assert.equal(res.statutCode, 400);
+    assert.match(res.corps.message, /Solde insuffisant/);
+    assert.equal(contratActive, false, 'le contrat ne doit pas être activé si la caution ne peut pas être payée');
   });
 });
 
