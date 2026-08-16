@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { notifier, echapperHtml } = require('../utils/notifications');
 const { genererDatesEcheances, ajouterPeriode } = require('../utils/echeances');
+const { transfererCautionFinContrat, notifierCautionTransferee } = require('../utils/caution');
 
 const UNITES_INTERVAL = { jours: 'days', semaines: 'weeks', mois: 'months', annees: 'years' };
 
@@ -195,16 +196,29 @@ async function approuverDemande(req, res) {
     );
 
     const bienLabel = echapperHtml(`${d.adresse || ''} ${d.ville}`.trim());
+    let infoCaution = null;
 
     if (d.type_demande === 'resiliation') {
       // Résilier le contrat
-      await pool.query("UPDATE contrats SET statut = 'resilie' WHERE id = $1", [d.contrat_id]);
-      await pool.query("UPDATE biens SET statut = 'libre', updated_at = NOW() WHERE id = $1", [d.bien_id]);
-      // Supprime les échéances futures pas encore dues ; garde les passées (impayées/partielles) pour recouvrement
-      await pool.query(
-        "DELETE FROM echeances WHERE contrat_id = $1 AND statut = 'en_attente' AND date_limite > CURRENT_DATE",
-        [d.contrat_id]
-      );
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query("UPDATE contrats SET statut = 'resilie' WHERE id = $1", [d.contrat_id]);
+        await client.query("UPDATE biens SET statut = 'libre', updated_at = NOW() WHERE id = $1", [d.bien_id]);
+        // Supprime les échéances futures pas encore dues ; garde les passées (impayées/partielles) pour recouvrement
+        await client.query(
+          "DELETE FROM echeances WHERE contrat_id = $1 AND statut = 'en_attente' AND date_limite > CURRENT_DATE",
+          [d.contrat_id]
+        );
+        // Ce qui reste en caution part sur le solde principal du locataire.
+        infoCaution = await transfererCautionFinContrat(client, d.contrat_id);
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
     } else if (d.type_demande === 'modification') {
       // Appliquer les modifications demandées
       const conditions = d.conditions_demandees || {};
@@ -262,6 +276,8 @@ async function approuverDemande(req, res) {
         `,
       });
     }
+
+    await notifierCautionTransferee(infoCaution);
 
     return res.json({ message: 'Demande approuvée avec succès' });
   } catch (err) {
@@ -607,9 +623,22 @@ async function finaliserResiliationContrat(req, res) {
     }
     const d = demande.rows[0];
 
-    await pool.query("UPDATE contrats SET statut = 'resilie' WHERE id = $1", [d.contrat_id]);
-    await pool.query("UPDATE biens SET statut = 'libre', updated_at = NOW() WHERE id = $1", [d.bien_id]);
-    await pool.query("UPDATE demandes_contrat SET statut = 'approuvee' WHERE id = $1", [id]);
+    const client = await pool.connect();
+    let infoCaution;
+    try {
+      await client.query('BEGIN');
+      await client.query("UPDATE contrats SET statut = 'resilie' WHERE id = $1", [d.contrat_id]);
+      await client.query("UPDATE biens SET statut = 'libre', updated_at = NOW() WHERE id = $1", [d.bien_id]);
+      await client.query("UPDATE demandes_contrat SET statut = 'approuvee' WHERE id = $1", [id]);
+      infoCaution = await transfererCautionFinContrat(client, d.contrat_id);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+    await notifierCautionTransferee(infoCaution);
 
     const bienLabel = d.numero_bien;
     for (const dest of [

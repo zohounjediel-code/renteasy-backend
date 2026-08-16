@@ -4,6 +4,7 @@ const { genererContratPDF } = require('../utils/contratPDF');
 const { notifier, echapperHtml } = require('../utils/notifications');
 const { resoudreCibleAction, estAutoriseSurProprietaire, resoudreProprietaireConsulte } = require('../utils/delegationAgent');
 const { enregistrerActionAgent } = require('../utils/journalAgent');
+const { calculerCaution, transfererCautionFinContrat, notifierCautionTransferee } = require('../utils/caution');
 
 const UNITES_INTERVAL = { jours: 'days', semaines: 'weeks', mois: 'months', annees: 'years' };
 
@@ -39,7 +40,9 @@ function calculerDateFin(date_debut, duree_valeur, duree_unite) {
 // Créer un contrat : le propriétaire le signe électroniquement (ou son agent en délégation),
 // le locataire doit ensuite le signer à son tour
 async function creerContrat(req, res) {
-  const { numero_bien, locataire_id, date_debut, type_loyer, loyer_mensuel, caution, duree_valeur, duree_unite, signature_proprietaire } = req.body;
+  // La caution n'est plus saisie manuellement : elle est calculée automatiquement
+  // (calculerCaution) à partir du loyer, juste avant l'INSERT.
+  const { numero_bien, locataire_id, date_debut, type_loyer, loyer_mensuel, duree_valeur, duree_unite, signature_proprietaire } = req.body;
   // L'échéance suit toujours la date de début du contrat, elle n'est jamais choisie manuellement.
   const { jour_echeance, jour_semaine_echeance, jour_echeance_annuel, mois_echeance_annuel } = calculerEcheanceDepuisDebut(date_debut, type_loyer);
 
@@ -110,11 +113,13 @@ async function creerContrat(req, res) {
     const uniteValide = dureeValide ? duree_unite : null;
     const intervalPg = dureeValide ? `${dureeValide} ${UNITES_INTERVAL[duree_unite]}` : null;
 
+    const caution = calculerCaution(loyer_mensuel);
+
     const resultatContrat = await pool.query(
-      `INSERT INTO contrats (bien_id, locataire_id, date_debut, date_fin, jour_echeance, jour_semaine_echeance, jour_echeance_annuel, mois_echeance_annuel, type_loyer, loyer_mensuel, caution, duree_valeur, duree_unite, statut, signature_proprietaire, date_signature_proprietaire, effectue_par_agent_id)
-       VALUES ($1, $2, $3, CASE WHEN $9::text IS NULL THEN NULL ELSE ($3::date + $9::interval)::date END, $4, $12, $13, $14, $5, $6, $7, $10, $11, 'en_attente_signature', $8, NOW(), $15)
+      `INSERT INTO contrats (bien_id, locataire_id, date_debut, date_fin, jour_echeance, jour_semaine_echeance, jour_echeance_annuel, mois_echeance_annuel, type_loyer, loyer_mensuel, caution, statut_caution, duree_valeur, duree_unite, statut, signature_proprietaire, date_signature_proprietaire, effectue_par_agent_id)
+       VALUES ($1, $2, $3, CASE WHEN $9::text IS NULL THEN NULL ELSE ($3::date + $9::interval)::date END, $4, $12, $13, $14, $5, $6, $7, 'en_attente', $10, $11, 'en_attente_signature', $8, NOW(), $15)
        RETURNING *`,
-      [bien_id, locataire_id, date_debut, jour_echeance || 5, type_loyer, loyer_mensuel, caution || 0, signature_proprietaire.trim(), intervalPg, dureeValide, uniteValide, jour_semaine_echeance ?? null, jour_echeance_annuel ?? null, mois_echeance_annuel ?? null, effectue_par_agent_id]
+      [bien_id, locataire_id, date_debut, jour_echeance || 5, type_loyer, loyer_mensuel, caution, signature_proprietaire.trim(), intervalPg, dureeValide, uniteValide, jour_semaine_echeance ?? null, jour_echeance_annuel ?? null, mois_echeance_annuel ?? null, effectue_par_agent_id]
     );
 
     const contrat = resultatContrat.rows[0];
@@ -254,20 +259,123 @@ async function resilierContrat(req, res) {
       return res.status(404).json({ message: 'Contrat non trouvé' });
     }
 
-    await pool.query("UPDATE contrats SET statut = 'resilie' WHERE id = $1", [id]);
-    await pool.query("UPDATE biens SET statut = 'libre', updated_at = NOW() WHERE id = $1", [contrat.rows[0].bien_id]);
+    const client = await pool.connect();
+    let infoCaution;
+    try {
+      await client.query('BEGIN');
 
-    // Supprime les échéances futures pas encore dues (le locataire ne les doit plus une fois parti).
-    // Les échéances déjà passées, même impayées ou partielles, restent pour être recouvrées.
-    await pool.query(
-      "DELETE FROM echeances WHERE contrat_id = $1 AND statut = 'en_attente' AND date_limite > CURRENT_DATE",
-      [id]
-    );
+      await client.query("UPDATE contrats SET statut = 'resilie' WHERE id = $1", [id]);
+      await client.query("UPDATE biens SET statut = 'libre', updated_at = NOW() WHERE id = $1", [contrat.rows[0].bien_id]);
+
+      // Supprime les échéances futures pas encore dues (le locataire ne les doit plus une fois parti).
+      // Les échéances déjà passées, même impayées ou partielles, restent pour être recouvrées.
+      await client.query(
+        "DELETE FROM echeances WHERE contrat_id = $1 AND statut = 'en_attente' AND date_limite > CURRENT_DATE",
+        [id]
+      );
+
+      // Ce qui reste en caution part sur le solde principal du locataire, maintenant que le
+      // contrat est officiellement terminé.
+      infoCaution = await transfererCautionFinContrat(client, id);
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    await notifierCautionTransferee(infoCaution);
 
     return res.json({ message: 'Contrat résilié avec succès' });
   } catch (err) {
     console.error('Erreur résiliation contrat :', err);
     return res.status(500).json({ message: 'Erreur serveur lors de la résiliation' });
+  }
+}
+
+// Le locataire paie la caution de son contrat, en une seule fois, uniquement depuis son solde
+// plateforme (aucun autre moyen de paiement n'est autorisé pour la caution).
+async function payerCautionSolde(req, res) {
+  const { id } = req.params;
+  const user_id = req.user.id;
+
+  try {
+    const contrat = await pool.query(
+      `SELECT c.*, b.numero_bien, b.proprietaire_id, l.user_id AS locataire_user_id
+       FROM contrats c
+       JOIN biens b ON b.id = c.bien_id
+       JOIN locataires l ON l.id = c.locataire_id
+       WHERE c.id = $1`,
+      [id]
+    );
+    if (contrat.rows.length === 0) {
+      return res.status(404).json({ message: 'Contrat non trouvé' });
+    }
+    const c = contrat.rows[0];
+
+    if (c.locataire_user_id !== user_id) {
+      return res.status(403).json({ message: 'Ce contrat ne vous appartient pas' });
+    }
+    if (c.statut !== 'actif') {
+      return res.status(409).json({ message: "La caution ne se paie qu'une fois le contrat actif (signé des deux côtés)" });
+    }
+    if (c.statut_caution !== 'en_attente') {
+      return res.status(409).json({ message: "La caution de ce contrat a déjà été payée ou n'est plus applicable" });
+    }
+
+    const montant = c.caution - c.caution_solde;
+    if (montant <= 0) {
+      return res.status(409).json({ message: 'Aucun montant restant à payer sur cette caution' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const userRes = await client.query('SELECT solde FROM users WHERE id = $1 FOR UPDATE', [user_id]);
+      const solde = userRes.rows[0].solde;
+
+      if (solde < montant) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ message: `Solde insuffisant. Solde disponible : ${solde} FCFA, caution à payer : ${montant} FCFA` });
+      }
+
+      await client.query('UPDATE users SET solde = solde - $1 WHERE id = $2', [montant, user_id]);
+      await client.query(
+        `UPDATE contrats SET caution_solde = caution_solde + $1, statut_caution = 'payee' WHERE id = $2`,
+        [montant, id]
+      );
+      await client.query(
+        `INSERT INTO caution_mouvements (contrat_id, type, montant) VALUES ($1, 'paiement', $2)`,
+        [id, montant]
+      );
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    const proprietaireInfo = await pool.query('SELECT nom, email FROM users WHERE id = $1', [c.proprietaire_id]);
+    await notifier({
+      user_id: c.proprietaire_id,
+      email: proprietaireInfo.rows[0].email,
+      nom: proprietaireInfo.rows[0].nom,
+      titre: 'Caution payée',
+      message: `La caution de ${montant.toLocaleString('fr-FR')} FCFA pour le bien ${c.numero_bien} a été réglée par le locataire depuis son solde.`,
+      type: 'paiement',
+      lien: '/locataires',
+    });
+
+    return res.json({ message: 'Caution payée avec succès', montant });
+  } catch (err) {
+    console.error('Erreur paiement caution :', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
   }
 }
 
@@ -389,12 +497,13 @@ async function demanderLocationMarche(req, res) {
 
     const dureeValide = duree_valeur && parseInt(duree_valeur) > 0 ? parseInt(duree_valeur) : null;
     const uniteValide = dureeValide ? duree_unite : null;
+    const caution = calculerCaution(loyer_mensuel);
 
     const resultatContrat = await pool.query(
-      `INSERT INTO contrats (bien_id, locataire_id, date_debut, date_fin, type_loyer, loyer_mensuel, duree_valeur, duree_unite, jour_echeance, jour_semaine_echeance, jour_echeance_annuel, mois_echeance_annuel, statut, origine, note_locataire)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $11, $12, $13, $14, 'demande_locataire', $9, $10)
+      `INSERT INTO contrats (bien_id, locataire_id, date_debut, date_fin, type_loyer, loyer_mensuel, caution, statut_caution, duree_valeur, duree_unite, jour_echeance, jour_semaine_echeance, jour_echeance_annuel, mois_echeance_annuel, statut, origine, note_locataire)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'en_attente', $8, $9, $12, $13, $14, $15, 'demande_locataire', $10, $11)
        RETURNING *`,
-      [bien_id, locataire_id, date_debut, dateFinCalculee, type_loyer, loyer_mensuel, dureeValide, uniteValide, origine, note || null, jour_echeance || 5, jour_semaine_echeance ?? null, jour_echeance_annuel ?? null, mois_echeance_annuel ?? null]
+      [bien_id, locataire_id, date_debut, dateFinCalculee, type_loyer, loyer_mensuel, caution, dureeValide, uniteValide, origine, note || null, jour_echeance || 5, jour_semaine_echeance ?? null, jour_echeance_annuel ?? null, mois_echeance_annuel ?? null]
     );
 
     const libelle = origine === 'locataire_location' ? 'de location' : 'de réservation';
@@ -622,5 +731,6 @@ async function refuserDemandeLocataire(req, res) {
 module.exports = {
   creerContrat, listerContrats, obtenirContrat, resilierContrat, telechargerContratPDF,
   demanderLocationMarche, listerDemandesLocataireProprio, approuverDemandeLocataire, refuserDemandeLocataire,
+  payerCautionSolde,
   verifierCollision,
 };

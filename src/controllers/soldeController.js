@@ -19,9 +19,25 @@ async function obtenirSolde(req, res) {
       [user_id]
     );
 
+    // Cautions en cours (contrats où ce compte est locataire) : montant bloqué, non retirable,
+    // par contrat encore en vigueur — un contrat résilié a déjà eu sa caution transférée sur le
+    // solde principal (transfererCautionFinContrat), donc caution_solde y est retombé à 0.
+    const cautions = await pool.query(
+      `SELECT c.id AS contrat_id, c.caution, c.caution_solde, c.statut_caution, b.numero_bien, b.adresse, b.ville
+       FROM contrats c
+       JOIN locataires l ON l.id = c.locataire_id
+       JOIN biens b ON b.id = c.bien_id
+       WHERE l.user_id = $1 AND c.caution > 0 AND c.statut IN ('actif', 'en_attente_signature')
+       ORDER BY c.created_at DESC`,
+      [user_id]
+    );
+    const cautionsTotal = cautions.rows.reduce((s, c) => s + c.caution_solde, 0);
+
     return res.json({
       solde: user.rows[0]?.solde || 0,
       transactions: transactions.rows,
+      cautions: cautions.rows,
+      cautions_total: cautionsTotal,
     });
   } catch (err) {
     console.error('Erreur récupération solde :', err);

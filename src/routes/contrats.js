@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authentifier, autoriser } = require('../middleware/auth');
+const { limiteurPaiements } = require('../middleware/rateLimiters');
 const {
   creerContrat,
   listerContrats,
@@ -10,6 +11,7 @@ const {
   listerDemandesLocataireProprio,
   approuverDemandeLocataire,
   refuserDemandeLocataire,
+  payerCautionSolde,
 } = require('../controllers/contratController');
 
 router.use(authentifier);
@@ -23,6 +25,10 @@ router.post('/', autoriser('proprietaire', 'admin', 'super_admin', 'agent'), cre
 // (vérifié par estAutoriseSurProprietaire côté contrôleur)
 router.post('/:id/approuver', autoriser('proprietaire', 'admin', 'super_admin', 'agent'), approuverDemandeLocataire);
 router.post('/:id/refuser-demande', autoriser('proprietaire', 'admin', 'super_admin', 'agent'), refuserDemandeLocataire);
+
+// Paiement de la caution : réservé au locataire (ou admin), jamais au propriétaire/agent —
+// contrairement au loyer, personne ne doit pouvoir la régler à sa place.
+router.post('/:id/payer-caution', limiteurPaiements, autoriser('locataire', 'admin', 'super_admin'), payerCautionSolde);
 
 // Le reste reste réservé au propriétaire — l'agent consulte via ses routes dédiées
 // en lecture seule (/api/agent/...)

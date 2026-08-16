@@ -108,6 +108,19 @@ describe('approuverDemande', () => {
       }
       return { rows: [] };
     });
+    // approuverDemande (branche résiliation) ouvre désormais une transaction (le transfert de
+    // caution modifie un solde) : pool.connect doit aussi être mocké, cf. test/paiements.test.js.
+    // caution_solde à 0 fait ressortir transfererCautionFinContrat immédiatement.
+    mock.method(pool, 'connect', async () => ({
+      async query(sql, params) {
+        appelsQuery.push({ sql, params });
+        if (sql.includes('caution_solde') && sql.includes('FROM contrats c')) {
+          return { rows: [{ caution_solde: 0, numero_bien: 'BIEN-1', locataire_user_id: null, locataire_nom: 'Test' }] };
+        }
+        return { rows: [] };
+      },
+      release() {},
+    }));
     const req = { params: { id: 'd1' }, body: {}, user: { id: 'agent-1', role: 'agent' } };
     const res = fauxRes();
     await approuverDemande(req, res);
